@@ -1,190 +1,100 @@
-# 科研技能环境搭建记事（Windows / DeepSeek Harness）
+# 科研技能环境说明（DSH）
 
-在一台网络受限的 Windows 机器上，把一批文献检索与课题设计技能装进 DSH 并跑通的过程记录。
-适用的技能来源：本地 `.codex\skills` 里的 5 个 + 上游 `Aperivue/medsci-skills` v6.3.0 的 5 个。
+本文件记录在 DSH 里安装科研技能后，为让它们真正跑起来所做的本机改动。改动只涉及
+本机环境与技能目录，未修改任何技能的检索逻辑。
 
-装了哪些技能、为什么这么装，以及踩到的坑，都在下面。命令里的 `<SKILLS>` 指你的技能根目录，
-例如 `%USERPROFILE%\.dsh\skills`。
+## 已安装技能
 
----
-
-## 一、装了哪些
+位于 `C:\Users\Administrator\.dsh\skills\`：
 
 | 技能 | 用途 | 依赖 |
 |---|---|---|
 | `pubmed-paper-finder` | PubMed 主题多模块检索 + 排序候选清单 | 纯标准库 |
-| `paper-lookup` | 11 个文献库检索、全文、引文图 | 纯标准库 |
-| `nature-academic-search` | 多源检索、引文核对、MeSH、他引审计 | MCP server + 独立脚本 |
-| `literature-review` | 系统综述工作流、引文格式、文档产出 | 需转换检索 JSON 形状 |
+| `paper-lookup` | 11 个文献库检索、全文、引文 | 纯标准库 |
+| `nature-academic-search` | 多源检索、引文核对、MeSH、他引审计 | MCP server（已接）+ 独立脚本 |
+| `literature-review` | 系统综述工作流、引文格式、文档产出 | 需把检索 JSON 转成数组后处理 |
 | `citation-management` | BibTeX 生成与校验 | 标准库 + requests |
-| `search-lit` | 检索 + API 验证后生成 BibTeX | 需补 Windows 版 E-utilities |
+| `search-lit` | 文献检索 + API 验证 BibTeX 生成 | 已补 Windows 版 E-utilities 工具 |
 | `design-study` | 研究设计审查（分析单位、泄漏、对照、验证） | 纯标准库 |
-| `find-cohort-gap` | 从队列数据库找可做的课题 | 纯标准库 |
-| `write-protocol` | 伦理/IRB 方案撰写 | 纯标准库 |
+| `find-cohort-gap` | 从队列数据库里找可做的课题方向 | 纯标准库 |
+| `write-protocol` | 伦理/IRB 研究方案撰写 | 纯标准库 |
 | `find-journal` | 投稿期刊匹配与拒稿回退 | 纯标准库 |
 
-前 6 个来自本地 `.codex\skills`，后 4 个来自 `medsci-skills` v6.3.0 的 `skills/` 目录。
+## 本机改动
 
----
+1. **`python3` 可用**
+   - 现象：`python3` 原来指向 Windows 商店占位符，执行返回 9009。
+   - 处理：在 `C:\Users\Administrator\AppData\Local\Programs\Python\Python313\python.exe` 旁复制出 `python3.exe`。
+   - 结论：`python` 与 `python3` 都可用，技能文档里的命令可直接照抄。
 
-## 二、四个必须处理的坑
+2. **`search-lit` 的 E-utilities 工具换成 Python 版**
+   - 新增 `references/pubmed_eutils.py`（命令、输出与 `pubmed_eutils.sh` 完全一致）。
+   - 原因：本机没有 bash，`.sh` 无法执行。
+   - 已验证：`search | parse_pubmed.py esearch`、`fetch | parse_pubmed.py bibtex` 均可用。
 
-### 1. `python3` 是商店占位符
+3. **`nature-academic-search` 的 MCP server 已接入 DSH**
+   - 依赖：`mcp==1.30.0`（v1，server 用的是 FastMCP；mcp 2.x 已改名为 MCPServer）、
+     `pybliometrics`、`lxml`、`requests`、`toml`。
+   - 配置：`~\.dsh\profiles\desktop\cordis.patch.yml` 中新增 `mcp-academic-search` 条目，
+     备份在同目录 `cordis.patch.yml.bak-before-mcp`。
+   - 工具名形如 `mcp__academic-search__search_papers`，共 16 个工具。
+   - 需要重启 DSH 才会加载。
 
-Windows 上 `python3` 常指向 `WindowsApps\python3.exe`，执行直接返回 9009。
-技能文档里大量写着 `python3 xxx.py`，照抄必失败。
+4. **pandoc**
+   - `C:\Users\Administrator\AppData\Local\Pandoc\pandoc.exe`（3.13，10 月 26 日已装）。
+   - 另外放了副本到 `C:\Users\Administrator\.local\bin\pandoc.exe`，并把该目录加入用户 PATH，
+     因为旧进程的 PATH 不含 `Local\Pandoc`。
+   - **本机没有任何 LaTeX 引擎**（xelatex / pdflatex / tectonic 都没有），所以
+     `literature-review` 的 `generate_pdf.py` 会报 `'xelatex' not found`。
+   - 可用的替代：`pandoc x.md -o x.docx`、`pandoc x.md -o x.html --standalone`，均已验证。
+   - 若确实要 PDF，二选一：装 `tectonic`（体积小，单文件），或装 MiKTeX / TeX Live。
 
-修法（不需要管理员权限）：
+## 网络注意事项（本机实测）
 
-```powershell
-$py = "$env:LOCALAPPDATA\Programs\Python\Python313"
-Copy-Item "$py\python.exe" "$py\python3.exe"
-```
+- `pip install` 直接连 PyPI **会挂起**（索引请求被重置），但
+  `https://pypi.tuna.tsinghua.edu.cn/simple/` 的包文件可直连。
+  需要装 Python 包时，先取镜像上的 wheel 再用 `pip install --no-index --find-links <目录>`。
+- GitHub release 直连下载会超时，`https://scoop.201704.xyz/` 与
+  `https://gh-proxy.com/` 两个前缀可用（前者更快）。
+- 控制台代码页是 GBK：Python 报错信息里出现非 ASCII 字符会变成
+  `UnicodeEncodeError`，命令行尽量设置 `PYTHONIOENCODING=utf-8`。
 
-或者把用户 PATH 里的 `WindowsApps` 排到 Python 目录之后。
-
-### 2. `search-lit` 的 E-utilities 工具是 bash 脚本
-
-上游给的 `references/pubmed_eutils.sh` 在无 bash 的 Windows 上跑不了。
-写了等价的 `pubmed_eutils.py`：命令一致（`search` / `fetch` / `fetch_json` / `related` / `cite_lookup`），
-输出与 `parse_pubmed.py` 的 `esearch` / `esummary` / `efetch` / `bibtex` 模式对接。
-
-注意 `parse_pubmed.py` 不认 `--help`，只认模式名：
-
-```powershell
-$S = "<SKILLS>\search-lit\references"
-python "$S\pubmed_eutils.py" search "topic query" 20 | python "$S\parse_pubmed.py" esearch
-python "$S\pubmed_eutils.py" fetch "12345678,23456789" | python "$S\parse_pubmed.py" bibtex
-```
-
-### 3. MCP 版本陷阱：`mcp` 2.x 不兼容 FastMCP 代码
-
-`nature-academic-search` 的 server 用 `from mcp.server import FastMCP`。
-`mcp` 2.x 已把它改名为 `MCPServer`（`mcp.server.mcpserver`），装上 2.x 后报：
-
-```
-ModuleNotFoundError: No module named 'mcp.server.fastmcp'. This is mcp 2.x, where FastMCP was renamed to MCPServer
-```
-
-必须固定 **`mcp<2`**（实测 `1.30.0` 可用）。另外 `pybliometrics` 是硬依赖——
-`sources/scopus.py` 在导入期就 require 它，缺了整个 server 起不来。
-
-DSH 侧配置（`~/.dsh/profiles/<profile>/cordis.patch.yml`）：
-
-```yaml
-- id: mcp-academic-search
-  name: "@deepseek-ai/dsh-mcp-client"
-  config:
-    serverName: academic-search
-    transport: stdio
-    command: <python.exe 绝对路径>
-    args:
-      - <SKILLS>\nature-academic-search\mcp-server\academic_search_server.py
-    cwd: <SKILLS>\nature-academic-search\mcp-server
-    env:
-      PYTHONIOENCODING: utf-8
-    toolCallTimeoutMs: 120000
-```
-
-改完要**重启 DSH**；工具名形如 `mcp__academic-search__search_papers`，共 16 个。
-
-### 4. 网络：pip 索引挂起、GitHub 下载超时
-
-本机实测：
-
-- `pip install <pkg>` **会静默挂起**（索引请求被重置），但包文件本身能下。
-  可用路径：从镜像取 wheel → `pip install --no-index --find-links <目录>`。
-- GitHub release 直连超时。可用的加速前缀：`https://scoop.201704.xyz/`（较快）、
-  `https://gh-proxy.com/`。用法是前缀 + 完整的 `https://github.com/...` 地址。
-- 控制台代码页是 GBK：Python 报错信息里有非 ASCII 字符就会变成 `UnicodeEncodeError`，
-  命令行建议设 `PYTHONIOENCODING=utf-8`。
-
----
-
-## 三、两处技能文档与实际行为的差异
-
-### `literature-review` 只吃纯数组
-
-`search_databases.py` 接受的是**结果数组**，不接受 `{"results": [...]}` 包装，
-否则 `generate_summary` 会对字符串调 `.get()` 而崩：
-
-```python
-import json
-d = json.load(open("raw.json", encoding="utf-8"))
-json.dump(d["results"], open("arr.json", "w", encoding="utf-8"), ensure_ascii=False)
-```
-
-然后：
+## 常用命令
 
 ```powershell
-python <SKILLS>\literature-review\scripts\search_databases.py arr.json --format markdown --output out.md
-```
+# PubMed 检索 + 排序候选清单（在目标目录下执行）
+python C:\Users\Administrator\.dsh\skills\pubmed-paper-finder\scripts\pubmed_paper_finder.py "your english topic"
+python C:\Users\Administrator\.dsh\skills\pubmed-paper-finder\scripts\pubmed_paper_finder.py "your topic" --max-per-query 5 --show 10
 
-另外它是手写 argv 解析，没有 `--help`；参数是 `--format` / `--output` / `--rank` /
-`--year-start` / `--year-end` / `--deduplicate` / `--summary`。
+# BibTeX 生成（PubMed）
+python C:\Users\Administrator\.dsh\skills\citation-management\scripts\search_pubmed.py --query "topic" --limit 20 --format bibtex -o refs.bib
 
-### PDF 导出需要 LaTeX
-
-`generate_pdf.py` 默认调 `xelatex`。装了 pandoc 但没有 LaTeX 引擎时会报
-`'xelatex' not found`。两个办法：
-
-- 装 `tectonic`（单文件、体积小）或 MiKTeX / TeX Live；
-- 或者不走 PDF：`pandoc x.md -o x.docx`、`pandoc x.md -o x.html --standalone` 都可直接用。
-
----
-
-## 四、常用命令
-
-```powershell
-# PubMed 检索 + 排序候选清单（在目标目录下执行，会写出 pubmed_results.md）
-python <SKILLS>\pubmed-paper-finder\scripts\pubmed_paper_finder.py "your english topic"
-python <SKILLS>\pubmed-paper-finder\scripts\pubmed_paper_finder.py "topic" --max-per-query 5 --show 10
-
-# BibTeX 生成与校验
-python <SKILLS>\citation-management\scripts\search_pubmed.py --query "topic" --limit 20 --format bibtex -o refs.bib
-python <SKILLS>\citation-management\scripts\validate_citations.py refs.bib
+# BibTeX 校验
+python C:\Users\Administrator\.dsh\skills\citation-management\scripts\validate_citations.py refs.bib
 
 # search-lit：检索 -> PMID -> BibTeX
-$S = "<SKILLS>\search-lit\references"
+$S = "C:\Users\Administrator\.dsh\skills\search-lit\references"
 python "$S\pubmed_eutils.py" search "topic query" 20 | python "$S\parse_pubmed.py" esearch
+python "$S\pubmed_eutils.py" fetch "12345678,23456789" | python "$S\parse_pubmed.py" bibtex
 
-# 研究设计：DAG 调整集筛查（JSON 不能带 BOM）
-python <SKILLS>\design-study\scripts\adjustment_set_helper.py --dag dag.json --exposure X --outcome Y
+# 研究设计：DAG 调整集
+python C:\Users\Administrator\.dsh\skills\design-study\scripts\adjustment_set_helper.py --dag dag.json --exposure X --outcome Y
 
 # 队列找课题
-python <SKILLS>\find-cohort-gap\scripts\build_cohort_profile.py --codebook codebook.csv --context "domain"
+python C:\Users\Administrator\.dsh\skills\find-cohort-gap\scripts\build_cohort_profile.py --codebook codebook.csv --context "your domain"
 
 # Markdown -> Word / HTML
 pandoc review.md -o review.docx
 pandoc review.md -o review.html --standalone
 ```
 
-`adjustment_set_helper.py` 读 JSON 时不吃 BOM：用 PowerShell `Set-Content -Encoding utf8`
-写出来的文件（带 BOM）会报 `Unexpected UTF-8 BOM`，改用 Python 写或 `-Encoding utf8NoBOM`。
+## 已知限制
 
----
-
-## 五、验证清单
-
-装完至少跑这几条，确认不是"装上了但跑不动"：
-
-| 检查 | 期望 |
-|---|---|
-| `python3 --version` | 打印版本，不是退出码 9009 |
-| `pubmed_paper_finder.py "some topic"` | 输出 `pubmed_results.md` |
-| `search_pubmed.py --query "x" --limit 3 --format json -o r.json` | 写出文件 |
-| `pubmed_eutils.py search "x" 5 \| parse_pubmed.py esearch` | 打印 PMID 列表 |
-| `academic_search_server.py` 启动后 MCP `list_tools` | 16 个工具 |
-| `academic_search.py "x" --limit 2 --compact` | 打印条目 |
-| `pandoc --version` | 3.x |
-
----
-
-## 六、已知限制
-
-- `nature-academic-search` 未配 `OPENALEX_API_KEY` 时 OpenAlex 返回 429；
-  在 `mcp-server/config.toml` 填 `[pubmed] email` 并申请免费 key 可缓解。
-  `academic_search.py` 的 `--mailto` 参数对 OpenAlex 也有帮助。
-- Semantic Scholar 免费额度很紧，匿名请求经常 429，属于上游限制，不是配置问题。
-- `design-study` 等 medsci 技能提示词是英文、面向影像与临床 AI 场景，
-  用在 MR / 队列研究上要自己挑适用的检查项（分析单位、泄漏、参照标准、验证策略这几条通用）。
+- `literature-review` 的 `search_databases.py` 只接受 **结果数组**，不接受
+  `{"results": [...]}` 包装；先用
+  `json.dump(d["results"], open("arr.json","w"))` 转换。
+- `literature-review` 的 PDF 依赖 LaTeX，本机没有（见上）。
+- `nature-academic-search` 的 `OPENALEX_API_KEY` 为空时 OpenAlex 会 429；
+  在 `mcp-server/config.toml` 填 `[pubmed] email` 与 OpenAlex key 可缓解。
+- 技能目录里的 `python3` 字样仍保留在 `paper-lookup` 等文档中；本机 `python3` 已可用，
+  所以不影响执行。

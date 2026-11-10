@@ -1,0 +1,3 @@
+display_name: PubMed Paper Finder
+short_description: Search PubMed in multiple modules and rank PMID-traceable candidate papers.
+default_prompt: Find PubMed papers about SGLT2 inhibitors and chronic kidney disease renal outcomes, then create a ranked candidate reading list.
